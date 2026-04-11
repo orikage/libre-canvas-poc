@@ -1,0 +1,36 @@
+# Rust
+/core/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node.js
+/web/node_modules/
+/web/dist/
+/web/.vite/
+
+# WebAssembly output
+/web/src/wasm/pkg/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary
+tmp/
+temp/

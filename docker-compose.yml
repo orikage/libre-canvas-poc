@@ -1,0 +1,25 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/app
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/app/core/target
+      - node-modules:/app/web/node_modules
+    ports:
+      - "5173:5173"
+    working_dir: /app
+    command: make dev
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+    tty: true
+    stdin_open: true
+
+volumes:
+  cargo-cache:
+  cargo-git:
+  target-cache:
+  node-modules:

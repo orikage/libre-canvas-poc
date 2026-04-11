@@ -1,0 +1,35 @@
+[package]
+name = "libre-canvas-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["LibreCanvas Contributors"]
+description = "Core drawing engine for LibreCanvas - a lightweight paint tool"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Performance",
+    "Window",
+] }
+
+# For better panic messages in wasm
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1

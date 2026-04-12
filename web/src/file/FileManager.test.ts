@@ -29,12 +29,6 @@ vi.stubGlobal('ImageData', class ImageData {
   }
 });
 
-// btoa / atob スタブ（Node.js 環境用）
-if (typeof globalThis.btoa === 'undefined') {
-  globalThis.btoa = (s: string) => Buffer.from(s, 'binary').toString('base64');
-  globalThis.atob = (s: string) => Buffer.from(s, 'base64').toString('binary');
-}
-
 // ---------------------------------------------------------------------------
 // テスト用サブクラス（protected メソッドを公開）
 // ---------------------------------------------------------------------------

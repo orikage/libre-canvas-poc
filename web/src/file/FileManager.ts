@@ -62,7 +62,7 @@ export class FileManager {
 
     if (FileManager.isFileSystemAccessSupported()) {
       try {
-        this.fileHandle = await (window as any).showSaveFilePicker({
+        const handle: FileSystemFileHandle = await (window as any).showSaveFilePicker({
           suggestedName: 'artwork.lcv',
           types: [
             {
@@ -71,7 +71,8 @@ export class FileManager {
             },
           ],
         });
-        await this.writeToHandle(data, this.fileHandle);
+        this.fileHandle = handle;
+        await this.writeToHandle(data, handle);
       } catch (e: any) {
         if (e.name !== 'AbortError') {
           console.error('Save failed:', e);

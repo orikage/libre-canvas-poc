@@ -1,4 +1,5 @@
-import { Renderer } from './Renderer';
+import { Renderer, BrushTextureType } from './Renderer';
+import { pencilGrain, charcoalGrain, DEFAULT_GRAIN_SCALE } from './grainTexture';
 
 /**
  * Canvas2D-based renderer.
@@ -11,6 +12,10 @@ export class Canvas2DRenderer implements Renderer {
   private ctx: CanvasRenderingContext2D;
   private offscreenCanvas: HTMLCanvasElement;
   private offscreenCtx: CanvasRenderingContext2D;
+
+  // ブラシテクスチャ設定
+  private brushType: BrushTextureType = 'round';
+  private grainScale: number = DEFAULT_GRAIN_SCALE.round;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -41,6 +46,20 @@ export class Canvas2DRenderer implements Renderer {
     return 'canvas2d';
   }
 
+  /**
+   * ブラシテクスチャを設定する。
+   * - round: 通常の円形ブラシ（デフォルト）
+   * - pencil: 鉛筆風グレイン（細かい多重オクターブノイズ）
+   * - charcoal: 木炭風グレイン（粗いコントラスト強めのノイズ）
+   *
+   * pencil / charcoal 時は drawLine / drawCircle が dab-based stippling に切り替わり、
+   * 各 dab 位置の grain 値でアルファを変調して描画する。
+   */
+  setBrushTexture(type: BrushTextureType, grainScale?: number): void {
+    this.brushType = type;
+    this.grainScale = grainScale ?? DEFAULT_GRAIN_SCALE[type];
+  }
+
   clear(): void {
     this.offscreenCtx.fillStyle = 'white';
     this.offscreenCtx.fillRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
@@ -48,6 +67,26 @@ export class Canvas2DRenderer implements Renderer {
   }
 
   drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void {
+    if (this.brushType === 'round') {
+      this.drawLineRound(x1, y1, x2, y2, size, color);
+    } else {
+      this.drawLineDab(x1, y1, x2, y2, size, color);
+    }
+  }
+
+  drawCircle(x: number, y: number, radius: number, color: number[]): void {
+    if (this.brushType === 'round') {
+      this.drawCircleRound(x, y, radius, color);
+    } else {
+      this.drawCircleDab(x, y, radius, color);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // round ブラシ（既存ロジック）
+  // ---------------------------------------------------------------------------
+
+  private drawLineRound(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void {
     const ctx = this.offscreenCtx;
     ctx.strokeStyle = `rgba(${Math.round(color[0] * 255)}, ${Math.round(color[1] * 255)}, ${Math.round(color[2] * 255)}, ${color[3]})`;
     ctx.lineWidth = size;
@@ -60,10 +99,57 @@ export class Canvas2DRenderer implements Renderer {
     ctx.stroke();
   }
 
-  drawCircle(x: number, y: number, radius: number, color: number[]): void {
+  private drawCircleRound(x: number, y: number, radius: number, color: number[]): void {
     const ctx = this.offscreenCtx;
     ctx.fillStyle = `rgba(${Math.round(color[0] * 255)}, ${Math.round(color[1] * 255)}, ${Math.round(color[2] * 255)}, ${color[3]})`;
 
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---------------------------------------------------------------------------
+  // grain ブラシ（dab-based stippling）
+  //
+  // 各 dab 位置でキャンバス座標を grainScale で割り、grain 関数からアルファ値を取得する。
+  // これにより WebGPU シェーダーの `fract(world_pos / grain_scale)` と同等の
+  // ワールド座標アンカーなグレイン模様を再現する。
+  // ---------------------------------------------------------------------------
+
+  private grainAt(x: number, y: number): number {
+    const nx = (x / this.grainScale) % 1;
+    const ny = (y / this.grainScale) % 1;
+    return this.brushType === 'pencil'
+      ? pencilGrain(nx, ny)
+      : charcoalGrain(nx, ny);
+  }
+
+  private drawLineDab(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void {
+    const ctx = this.offscreenCtx;
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const spacing = Math.max(size * 0.25, 1);
+    const steps = Math.max(1, Math.ceil(dist / spacing));
+    const r = Math.round(color[0] * 255);
+    const g = Math.round(color[1] * 255);
+    const b = Math.round(color[2] * 255);
+    const baseAlpha = color[3];
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = x1 + (x2 - x1) * t;
+      const cy = y1 + (y2 - y1) * t;
+      const grain = this.grainAt(cx, cy);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${grain * baseAlpha})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private drawCircleDab(x: number, y: number, radius: number, color: number[]): void {
+    const ctx = this.offscreenCtx;
+    const grain = this.grainAt(x, y);
+    ctx.fillStyle = `rgba(${Math.round(color[0] * 255)}, ${Math.round(color[1] * 255)}, ${Math.round(color[2] * 255)}, ${grain * color[3]})`;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();

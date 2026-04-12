@@ -211,7 +211,7 @@ export class Toolbar {
     }
     try {
       await this.fileManager.save(
-        (this.canvasManager as any).renderer,
+        this.canvasManager.getRenderer(),
         this.layerManager
       );
       console.log('File saved');
@@ -221,10 +221,16 @@ export class Toolbar {
   }
 
   private async handleLoad(): Promise<void> {
+    if (!this.layerManager) {
+      console.warn('LayerManager not set');
+      return;
+    }
     try {
-      const result = await this.fileManager.load();
-      if (result) {
-        (this.canvasManager as any).renderer.putImageData(result.imageData);
+      const loaded = await this.fileManager.load();
+      if (loaded) {
+        // in-place 置換: 既存の layerManager 参照（CanvasManager・LayerPanel も含む）を
+        // 無効化せずに内容だけ差し替える。onChange が自動発火してレンダラー・UI を同期する。
+        this.layerManager.replaceWith(loaded);
         console.log('File loaded');
       }
     } catch (e) {
@@ -234,7 +240,7 @@ export class Toolbar {
 
   private async handleExport(): Promise<void> {
     try {
-      await this.fileManager.exportPng((this.canvasManager as any).renderer);
+      await this.fileManager.exportPng(this.canvasManager.getRenderer());
       console.log('PNG exported');
     } catch (e) {
       console.error('Export failed:', e);

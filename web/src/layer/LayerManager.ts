@@ -262,6 +262,20 @@ export class LayerManager {
   getHeight(): number { return this.height; }
 
   /**
+   * 別の LayerManager インスタンスの内容を自身に上書きする（in-place置換）。
+   * ファイル読み込み時などで、既存参照を無効化せずに内容を差し替えるために使用する。
+   * 置換後に onChange を発火してレンダラー・UIを最新状態に同期する。
+   */
+  replaceWith(other: LayerManager): void {
+    this.width = other.width;
+    this.height = other.height;
+    this.layers = other.layers.slice();
+    this.activeLayerIndex = other.activeLayerIndex;
+    this.nextId = other.nextId;
+    this.onChange();
+  }
+
+  /**
    * Serialize layers for saving
    */
   serialize(): object {

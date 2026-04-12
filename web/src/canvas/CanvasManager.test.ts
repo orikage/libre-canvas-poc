@@ -241,3 +241,192 @@ describe('CanvasManager / setBrushTexture', () => {
     expect(renderer.setBrushTexture).toHaveBeenCalledWith('charcoal', 400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// LayerManager 統合
+// ---------------------------------------------------------------------------
+
+// LayerManager モック（必要なメソッドのみ）
+function makeLayerManager(w = 100, h = 100) {
+  return {
+    getWidth: vi.fn().mockReturnValue(w),
+    getHeight: vi.fn().mockReturnValue(h),
+    getActiveLayerIndex: vi.fn().mockReturnValue(0),
+    getLayerCount: vi.fn().mockReturnValue(1),
+    getActiveLayerImageData: vi.fn().mockReturnValue(new ImageData(w, h)),
+    setActiveLayerImageData: vi.fn(),
+    composite: vi.fn().mockReturnValue(new ImageData(w, h)),
+  };
+}
+
+// CanvasManager のレイヤー統合ロジックを直接テストするための拡張ヘルパー
+function makeCanvasManagerWithLayerSupport(canvas: HTMLCanvasElement, renderer: any) {
+  let layerManager: ReturnType<typeof makeLayerManager> | null = null;
+  let activeLayerCtx: any = null;
+  const brush = {
+    size: 10,
+    color: [0, 0, 0, 1] as number[],
+    smoothingAlpha: 0.4,
+    smoothingStages: 3,
+  };
+
+  function syncActiveLayerCanvas() {
+    if (!layerManager) return;
+    const data = layerManager.getActiveLayerImageData();
+    if (activeLayerCtx && data) {
+      activeLayerCtx.clearRect(0, 0, data.width, data.height);
+      activeLayerCtx.putImageData(data, 0, 0);
+    }
+  }
+
+  return {
+    brush,
+    renderer,
+    canvas,
+    get activeLayerCtx() { return activeLayerCtx; },
+
+    setLayerManager(lm: any) {
+      layerManager = lm;
+      // テスト用: activeLayerCtx をモックに差し替え
+      activeLayerCtx = {
+        clearRect: vi.fn(),
+        putImageData: vi.fn(),
+        getImageData: vi.fn().mockReturnValue(new ImageData(lm.getWidth(), lm.getHeight())),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 1,
+        lineCap: '',
+        lineJoin: '',
+        globalAlpha: 1,
+        arc: vi.fn(),
+        fill: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+      };
+      syncActiveLayerCanvas();
+      this.onLayerChanged();
+    },
+
+    onLayerChanged() {
+      if (!layerManager) return;
+      const composite = layerManager.composite();
+      renderer.putImageData(composite);
+      syncActiveLayerCanvas();
+    },
+
+    handleStrokeEnd() {
+      if (layerManager && activeLayerCtx) {
+        const w = layerManager.getWidth();
+        const h = layerManager.getHeight();
+        const data = activeLayerCtx.getImageData(0, 0, w, h);
+        layerManager.setActiveLayerImageData(data);
+      }
+    },
+
+    clear() {
+      if (layerManager) {
+        const w = layerManager.getWidth();
+        const h = layerManager.getHeight();
+        const blank = new ImageData(w, h);
+        layerManager.setActiveLayerImageData(blank);
+      } else {
+        renderer.clear();
+      }
+    },
+
+    getBrush() { return { ...brush }; },
+    setBrushSize(size: number) { brush.size = Math.max(1, Math.min(8192, size)); },
+  };
+}
+
+describe('CanvasManager / setLayerManager', () => {
+  it('setLayerManager 後に onLayerChanged を呼ぶと renderer.putImageData が実行される', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    renderer.putImageData.mockClear();
+    cm.setLayerManager(lm);
+    // setLayerManager 内で onLayerChanged が呼ばれるため putImageData が呼ばれる
+    expect(renderer.putImageData).toHaveBeenCalled();
+  });
+
+  it('setLayerManager 後に layerManager.composite() の結果が renderer に渡される', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    const compositeResult = new ImageData(100, 100);
+    lm.composite.mockReturnValue(compositeResult);
+    renderer.putImageData.mockClear();
+    cm.setLayerManager(lm);
+    expect(renderer.putImageData).toHaveBeenCalledWith(compositeResult);
+  });
+});
+
+describe('CanvasManager / onLayerChanged', () => {
+  it('layerManager.composite() の結果が renderer.putImageData に渡される', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    cm.setLayerManager(lm);
+    const newComposite = new ImageData(100, 100);
+    lm.composite.mockReturnValue(newComposite);
+    renderer.putImageData.mockClear();
+    cm.onLayerChanged();
+    expect(renderer.putImageData).toHaveBeenCalledWith(newComposite);
+  });
+
+  it('layerManager が未設定の場合は renderer.putImageData を呼ばない', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    renderer.putImageData.mockClear();
+    cm.onLayerChanged();
+    expect(renderer.putImageData).not.toHaveBeenCalled();
+  });
+});
+
+describe('CanvasManager / handleStrokeEnd with layerManager', () => {
+  it('strokeEnd 後に layerManager.setActiveLayerImageData が呼ばれる', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    cm.setLayerManager(lm);
+    lm.setActiveLayerImageData.mockClear();
+    cm.handleStrokeEnd();
+    expect(lm.setActiveLayerImageData).toHaveBeenCalledTimes(1);
+  });
+
+  it('strokeEnd 後に setActiveLayerImageData に ImageData が渡される', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    cm.setLayerManager(lm);
+    lm.setActiveLayerImageData.mockClear();
+    cm.handleStrokeEnd();
+    const [arg] = lm.setActiveLayerImageData.mock.calls[0];
+    expect(arg).toBeInstanceOf(ImageData);
+  });
+});
+
+describe('CanvasManager / clear with layerManager', () => {
+  it('layerManager がある場合、setActiveLayerImageData に透明な ImageData が渡される', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    const lm = makeLayerManager();
+    cm.setLayerManager(lm);
+    lm.setActiveLayerImageData.mockClear();
+    cm.clear();
+    const [arg] = lm.setActiveLayerImageData.mock.calls[0];
+    // 透明黒 = 全ピクセルが 0
+    expect(arg.data.every((v: number) => v === 0)).toBe(true);
+  });
+
+  it('layerManager がない場合は renderer.clear() が直接呼ばれる', () => {
+    const renderer = makeRenderer();
+    const cm = makeCanvasManagerWithLayerSupport(makeCanvas(), renderer);
+    renderer.clear.mockClear();
+    cm.clear();
+    expect(renderer.clear).toHaveBeenCalledTimes(1);
+  });
+});

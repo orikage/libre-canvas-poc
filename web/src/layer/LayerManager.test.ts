@@ -374,3 +374,68 @@ describe('LayerManager / getAllLayerInfo', () => {
     expect(lm.getLayerInfo(0)?.name).toBe('Background');
   });
 });
+
+// ---------------------------------------------------------------------------
+// replaceWith
+// ---------------------------------------------------------------------------
+describe('LayerManager / replaceWith', () => {
+  it('置換後のレイヤー数が新インスタンスと一致する', () => {
+    const lm = makeManager();
+    const other = makeManager();
+    other.addLayer('Layer 2');
+    other.addLayer('Layer 3');
+    lm.replaceWith(other);
+    expect(lm.getLayerCount()).toBe(3);
+  });
+
+  it('置換後の width が新インスタンスと一致する', () => {
+    const lm = makeManager(100, 100);
+    const other = new LayerManager(320, 240);
+    lm.replaceWith(other);
+    expect(lm.getWidth()).toBe(320);
+    expect(lm.getHeight()).toBe(240);
+  });
+
+  it('置換後の activeLayerIndex が新インスタンスと一致する', () => {
+    const lm = makeManager();
+    const other = makeManager();
+    other.addLayer('A');
+    other.addLayer('B');
+    other.setActiveLayer(1);
+    lm.replaceWith(other);
+    expect(lm.getActiveLayerIndex()).toBe(1);
+  });
+
+  it('置換後に新インスタンスのレイヤー名が参照できる', () => {
+    const lm = makeManager();
+    const other = makeManager();
+    other.addLayer('Ink');
+    lm.replaceWith(other);
+    expect(lm.getLayerInfo(1)?.name).toBe('Ink');
+  });
+
+  it('replaceWith で onChange が 1 回呼ばれる', () => {
+    const onChange = vi.fn();
+    const lm = new LayerManager(100, 100, onChange);
+    onChange.mockClear();
+    const other = makeManager();
+    lm.replaceWith(other);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('置換後も元の onChange コールバックが保持される（新インスタンスのものに上書きされない）', () => {
+    const onChange = vi.fn();
+    const lm = new LayerManager(100, 100, onChange);
+    onChange.mockClear();
+    // other は別のコールバックを持つ（constructor 内の addLayer で1回呼ばれる）
+    const otherOnChange = vi.fn();
+    const other = new LayerManager(100, 100, otherOnChange);
+    otherOnChange.mockClear(); // constructor 内の addLayer 呼び出しをリセット
+    lm.replaceWith(other);
+    // replaceWith の onChange 発火後、さらにレイヤー操作して元の onChange が呼ばれることを確認
+    onChange.mockClear();
+    lm.addLayer('Test');
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(otherOnChange).not.toHaveBeenCalled();
+  });
+});

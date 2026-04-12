@@ -186,10 +186,16 @@ describe('generateGrainData', () => {
     expect(diff).toBeGreaterThan(0);
   });
 
-  it('生成結果は冪等（同じ型に対して同じデータを返す）', () => {
+  it('生成結果は冪等（同じ型に対して同じデータを返す）', { timeout: 30000 }, () => {
     const a = generateGrainData('pencil');
     const b = generateGrainData('pencil');
-    expect(a).toEqual(b);
+    // Uint8Array の要素を逐次比較（toEqual は大きな型付き配列で遅いためループで検証）
+    expect(a.length).toBe(b.length);
+    let diff = false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) { diff = true; break; }
+    }
+    expect(diff).toBe(false);
   });
 });
 

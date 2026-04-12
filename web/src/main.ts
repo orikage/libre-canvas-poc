@@ -36,21 +36,28 @@ async function main() {
   window.canvasManager = canvasManager;
   console.log(`Renderer: ${canvasManager.getRendererType()}`);
 
+  // layerPanel は後から代入される。クロージャが捕捉する変数として先に宣言する。
+  let layerPanel: LayerPanel;
+
   // Initialize layer manager
+  // onChange はレイヤー操作（追加・削除・移動・プロパティ変更・strokeEnd後の ImageData 保存）で発火する。
+  // canvasManager.onLayerChanged() が composite → renderer 反映 → activeLayerCanvas 同期を担う。
   const layerManager = new LayerManager(canvas.width, canvas.height, () => {
-    // Layer change callback - composite and update canvas
-    // For POC, we keep drawing directly to canvas
-    // Full layer support would require more integration
+    canvasManager.onLayerChanged();
+    layerPanel?.refresh(); // layerPanel 代入前は undefined のため optional chaining を使用
   });
   window.layerManager = layerManager;
+
+  // レイヤーシステムを CanvasManager に接続（描画がレイヤーと統合される）
+  canvasManager.setLayerManager(layerManager);
 
   // Initialize UI
   const toolbar = new Toolbar(canvasManager);
   toolbar.setLayerManager(layerManager);
   window.appToolbar = toolbar;
 
-  const layerPanel = new LayerPanel(layerManager, () => {
-    // Refresh display when layers change
+  layerPanel = new LayerPanel(layerManager, () => {
+    canvasManager.onLayerChanged();
     layerPanel.refresh();
   });
   window.layerPanel = layerPanel;

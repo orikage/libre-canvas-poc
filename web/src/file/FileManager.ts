@@ -9,6 +9,7 @@ interface LcvFile {
   version: string;
   width: number;
   height: number;
+  activeLayerIndex?: number;
   createdAt: string;
   modifiedAt: string;
   layers: LayerData[];
@@ -85,9 +86,10 @@ export class FileManager {
   }
 
   /**
-   * Load canvas from file
+   * Load canvas from file.
+   * 全レイヤーを含む LayerManager を返す。
    */
-  async load(): Promise<{ layerData: any; imageData: ImageData } | null> {
+  async load(): Promise<LayerManager | null> {
     if (FileManager.isFileSystemAccessSupported()) {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
@@ -138,14 +140,14 @@ export class FileManager {
     URL.revokeObjectURL(url);
   }
 
-  private createSaveData(renderer: Renderer, layerManager: LayerManager): LcvFile {
-    const imageData = renderer.getImageData();
+  protected createSaveData(renderer: Renderer, layerManager: LayerManager): LcvFile {
     const layerData = layerManager.serialize() as any;
 
     return {
       version: '0.1.0',
-      width: imageData.width,
-      height: imageData.height,
+      width: layerManager.getWidth(),
+      height: layerManager.getHeight(),
+      activeLayerIndex: layerData.activeLayerIndex,
       createdAt: new Date().toISOString(),
       modifiedAt: new Date().toISOString(),
       layers: layerData.layers.map((layer: any) => ({
@@ -178,7 +180,7 @@ export class FileManager {
     URL.revokeObjectURL(url);
   }
 
-  private uploadFallback(): Promise<{ layerData: any; imageData: ImageData } | null> {
+  private uploadFallback(): Promise<LayerManager | null> {
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -198,15 +200,15 @@ export class FileManager {
     });
   }
 
-  private parseFile(text: string): { layerData: any; imageData: ImageData } | null {
+  protected parseFile(text: string): LayerManager | null {
     try {
       const data: LcvFile = JSON.parse(text);
 
-      // Convert back to LayerManager format
+      // 全レイヤーを LayerManager.deserialize() 形式に変換
       const layerData = {
         width: data.width,
         height: data.height,
-        activeLayerIndex: 0,
+        activeLayerIndex: data.activeLayerIndex ?? 0,
         layers: data.layers.map((layer) => ({
           info: {
             id: layer.id,
@@ -219,15 +221,7 @@ export class FileManager {
         })),
       };
 
-      // Create ImageData from first layer for now
-      const firstLayerData = this.base64ToArray(data.layers[0]?.data || '');
-      const imageData = new ImageData(
-        new Uint8ClampedArray(firstLayerData),
-        data.width,
-        data.height
-      );
-
-      return { layerData, imageData };
+      return LayerManager.deserialize(layerData);
     } catch (e) {
       console.error('Failed to parse file:', e);
       return null;

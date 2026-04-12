@@ -1,3 +1,5 @@
+#![cfg_attr(test, feature(test))]
+
 use wasm_bindgen::prelude::*;
 
 // Modules

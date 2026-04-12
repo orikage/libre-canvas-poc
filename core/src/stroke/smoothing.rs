@@ -166,3 +166,58 @@ mod tests {
         assert_eq!(result.y, 200.0);
     }
 }
+
+#[cfg(test)]
+mod benches {
+    extern crate test;
+    use test::Bencher;
+    use super::*;
+    use crate::input::RawPoint;
+
+    fn make_raw(x: f32, y: f32) -> RawPoint {
+        RawPoint::new(x, y, 0.8, 0.0, 0.0, 0.0)
+    }
+
+    #[bench]
+    fn bench_smoother_single_stage_1(b: &mut Bencher) {
+        let mut smoother = StrokeSmoother::new(0.4, 1);
+        let pt = make_raw(100.0, 100.0);
+        smoother.process(&pt); // 初期化ウォームアップ
+        b.iter(|| {
+            test::black_box(smoother.process(test::black_box(&pt)));
+        });
+    }
+
+    #[bench]
+    fn bench_smoother_sai_3_stages(b: &mut Bencher) {
+        let mut smoother = StrokeSmoother::sai_like();
+        let pt = make_raw(100.0, 100.0);
+        smoother.process(&pt);
+        b.iter(|| {
+            test::black_box(smoother.process(test::black_box(&pt)));
+        });
+    }
+
+    #[bench]
+    fn bench_smoother_max_20_stages(b: &mut Bencher) {
+        let mut smoother = StrokeSmoother::new(0.4, 20);
+        let pt = make_raw(100.0, 100.0);
+        smoother.process(&pt);
+        b.iter(|| {
+            test::black_box(smoother.process(test::black_box(&pt)));
+        });
+    }
+
+    #[bench]
+    fn bench_smoother_stroke_100pts_sai(b: &mut Bencher) {
+        let points: Vec<RawPoint> = (0..100)
+            .map(|i| make_raw(i as f32 * 5.0, (i as f32 * 0.1_f32).sin() * 20.0))
+            .collect();
+        b.iter(|| {
+            let mut smoother = StrokeSmoother::sai_like();
+            for pt in &points {
+                test::black_box(smoother.process(test::black_box(pt)));
+            }
+        });
+    }
+}

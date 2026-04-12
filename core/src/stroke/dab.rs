@@ -180,3 +180,62 @@ mod tests {
         assert_eq!(dabs[0].x, 100.0);
     }
 }
+
+#[cfg(test)]
+mod benches {
+    extern crate test;
+    use test::Bencher;
+    use super::*;
+    use crate::input::SmoothPoint;
+
+    fn pt(x: f32, y: f32) -> SmoothPoint {
+        SmoothPoint::new(x, y, 1.0)
+    }
+
+    #[bench]
+    fn bench_dab_first_point(b: &mut Bencher) {
+        b.iter(|| {
+            let mut gen = DabGenerator::new(10.0, 0.25);
+            test::black_box(gen.generate(test::black_box(pt(100.0, 100.0))));
+        });
+    }
+
+    #[bench]
+    fn bench_dab_short_stroke_dense(b: &mut Bencher) {
+        let points: Vec<SmoothPoint> = (0..5)
+            .map(|i| pt(i as f32 * 10.0, 0.0))
+            .collect();
+        b.iter(|| {
+            let mut gen = DabGenerator::new(10.0, 0.1); // 高密度 spacing=10%
+            for &p in &points {
+                test::black_box(gen.generate(test::black_box(p)));
+            }
+        });
+    }
+
+    #[bench]
+    fn bench_dab_long_stroke_dense_100pts(b: &mut Bencher) {
+        let points: Vec<SmoothPoint> = (0..100)
+            .map(|i| pt(i as f32 * 10.0, (i as f32 * 0.2_f32).sin() * 30.0))
+            .collect();
+        b.iter(|| {
+            let mut gen = DabGenerator::new(10.0, 0.1);
+            for &p in &points {
+                test::black_box(gen.generate(test::black_box(p)));
+            }
+        });
+    }
+
+    #[bench]
+    fn bench_dab_long_stroke_sparse_100pts(b: &mut Bencher) {
+        let points: Vec<SmoothPoint> = (0..100)
+            .map(|i| pt(i as f32 * 10.0, (i as f32 * 0.2_f32).sin() * 30.0))
+            .collect();
+        b.iter(|| {
+            let mut gen = DabGenerator::new(10.0, 1.0); // 低密度 spacing=100%
+            for &p in &points {
+                test::black_box(gen.generate(test::black_box(p)));
+            }
+        });
+    }
+}

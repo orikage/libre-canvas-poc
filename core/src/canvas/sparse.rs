@@ -256,3 +256,66 @@ mod tests {
         assert!(canvas.tile_count() > 0);
     }
 }
+
+#[cfg(test)]
+mod benches {
+    extern crate test;
+    use test::Bencher;
+    use super::*;
+    use crate::input::SmoothPoint;
+    use crate::stroke::DabGenerator;
+
+    const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+
+    #[bench]
+    fn bench_draw_point_small_radius(b: &mut Bencher) {
+        let mut canvas = SparseCanvas::new(1920, 1080);
+        b.iter(|| {
+            canvas.draw_point(
+                test::black_box(500.0),
+                test::black_box(500.0),
+                test::black_box(RED),
+                test::black_box(5.0),
+            );
+        });
+    }
+
+    #[bench]
+    fn bench_draw_point_large_radius(b: &mut Bencher) {
+        let mut canvas = SparseCanvas::new(1920, 1080);
+        b.iter(|| {
+            canvas.draw_point(
+                test::black_box(500.0),
+                test::black_box(500.0),
+                test::black_box(RED),
+                test::black_box(50.0),
+            );
+        });
+    }
+
+    #[bench]
+    fn bench_full_stroke_100_dabs(b: &mut Bencher) {
+        // ダブ生成はタイミング外で事前実行
+        let mut gen = DabGenerator::new(10.0, 0.25);
+        let smooth_pts: Vec<SmoothPoint> = (0..100)
+            .map(|i| SmoothPoint::new(i as f32 * 8.0 + 100.0, 300.0, 0.8))
+            .collect();
+        let mut dabs = Vec::new();
+        for sp in &smooth_pts {
+            dabs.extend(gen.generate(*sp));
+        }
+
+        b.iter(|| {
+            let mut canvas = SparseCanvas::new(1920, 1080);
+            for dab in &dabs {
+                canvas.draw_point(
+                    test::black_box(dab.x),
+                    test::black_box(dab.y),
+                    test::black_box(RED),
+                    test::black_box(dab.size * 0.5),
+                );
+            }
+            test::black_box(canvas.tile_count());
+        });
+    }
+}

@@ -6,6 +6,11 @@ export interface WasmModule {
   RawPoint: RawPointConstructor;
   SmoothPoint: SmoothPointConstructor;
   StrokeSmoother: StrokeSmootherConstructor;
+  km_mix_colors(
+    a_r: number, a_g: number, a_b: number, a_a: number,
+    b_r: number, b_g: number, b_b: number, b_a: number,
+    mix_ratio: number,
+  ): Float32Array;
 }
 
 export interface RawPointConstructor {

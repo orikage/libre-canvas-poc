@@ -9,6 +9,8 @@ export interface BrushSettings {
   color: number[]; // [r, g, b, a] normalized 0-1
   smoothingAlpha: number;
   smoothingStages: number;
+  colorMixing: boolean;    // Kubelka-Munk color mixing enabled
+  colorMixRate: number;    // pickup rate 0.0 (pure brush) - 1.0 (pure canvas)
 }
 
 interface SmoothedPoint {
@@ -38,6 +40,9 @@ export class CanvasManager {
   private activeLayerCanvas: HTMLCanvasElement | null = null;
   private activeLayerCtx: CanvasRenderingContext2D | null = null;
 
+  // Kubelka-Munk: evolving brush color during a stroke
+  private currentMixedColor: number[] | null = null;
+
   // Undo/Redo
   private undoManager: UndoManager | null = null;
   private strokeBeforeSnapshot: ImageData | null = null;
@@ -51,6 +56,8 @@ export class CanvasManager {
       color: [0, 0, 0, 1], // Black
       smoothingAlpha: 0.4,
       smoothingStages: 3,
+      colorMixing: false,
+      colorMixRate: 0.5,
     };
 
     // Initialize Wasm smoother if available
@@ -255,6 +262,100 @@ export class CanvasManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Kubelka-Munk color mixing helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sample the average color from activeLayerCtx at (x, y).
+   * The sampling area scales with brush radius for consistent behavior.
+   * Returns straight RGBA [0,1], or null if the area is fully transparent.
+   */
+  private sampleCanvasColor(x: number, y: number, brushRadius: number): number[] | null {
+    if (!this.activeLayerCtx || !this.activeLayerCanvas) return null;
+
+    const sampleRadius = Math.max(1, Math.min(8, Math.floor(brushRadius * 0.3)));
+    const sx = Math.max(0, Math.floor(x) - sampleRadius);
+    const sy = Math.max(0, Math.floor(y) - sampleRadius);
+    const sw = Math.min(sampleRadius * 2 + 1, this.activeLayerCanvas.width - sx);
+    const sh = Math.min(sampleRadius * 2 + 1, this.activeLayerCanvas.height - sy);
+    if (sw <= 0 || sh <= 0) return null;
+
+    const imageData = this.activeLayerCtx.getImageData(sx, sy, sw, sh);
+    const data = imageData.data;
+
+    let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3] / 255;
+      totalR += (data[i] / 255) * a;
+      totalG += (data[i + 1] / 255) * a;
+      totalB += (data[i + 2] / 255) * a;
+      totalA += a;
+    }
+
+    if (totalA < 0.01) return null; // area is essentially transparent
+
+    return [totalR / totalA, totalG / totalA, totalB / totalA, totalA / (sw * sh)];
+  }
+
+  /**
+   * Generate dab positions along a line segment.
+   * Mirrors spacing logic in WebGPURenderer.drawLine / Canvas2DRenderer.drawLineDab.
+   */
+  private generateDabPositions(
+    x1: number, y1: number, x2: number, y2: number, size: number
+  ): Array<{x: number; y: number; radius: number}> {
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const spacing = Math.max(size * 0.25, 1);
+    const steps = Math.max(Math.floor(dist / spacing), 1);
+    const radius = size * 0.5;
+
+    const dabs: Array<{x: number; y: number; radius: number}> = [];
+    for (let i = 0; i < steps; i++) {
+      const t = steps === 1 ? 0 : i / (steps - 1);
+      dabs.push({ x: x1 + dx * t, y: y1 + dy * t, radius });
+    }
+    return dabs;
+  }
+
+  /**
+   * K-M enabled stroke move handler.
+   * For each dab: sample canvas color → evolve currentMixedColor → draw.
+   */
+  private handleStrokeMoveKM(smoothed: SmoothedPoint): void {
+    if (!this.lastPoint || !this.currentMixedColor) return;
+
+    const size = this.brush.size * smoothed.pressure;
+    const dabs = this.generateDabPositions(
+      this.lastPoint.x, this.lastPoint.y, smoothed.x, smoothed.y, size
+    );
+
+    const wasm = getWasm();
+
+    for (const dab of dabs) {
+      const canvasColor = this.sampleCanvasColor(dab.x, dab.y, dab.radius);
+
+      if (canvasColor && wasm?.km_mix_colors) {
+        const mixed = wasm.km_mix_colors(
+          this.currentMixedColor[0], this.currentMixedColor[1],
+          this.currentMixedColor[2], this.currentMixedColor[3],
+          canvasColor[0], canvasColor[1], canvasColor[2], canvasColor[3],
+          this.brush.colorMixRate,
+        );
+        this.currentMixedColor = [mixed[0], mixed[1], mixed[2], mixed[3]];
+      }
+
+      this.renderer.drawCircle(dab.x, dab.y, dab.radius, this.currentMixedColor);
+
+      if (this.activeLayerCtx) {
+        this.drawCircleToCtx(this.activeLayerCtx, dab.x, dab.y, dab.radius, this.currentMixedColor);
+      }
+    }
+
+    this.renderer.present();
+  }
+
+  // ---------------------------------------------------------------------------
   // Stroke handlers
   // ---------------------------------------------------------------------------
 
@@ -279,11 +380,29 @@ export class CanvasManager {
 
     // Draw initial dot
     const size = this.brush.size * smoothed.pressure;
-    this.renderer.drawCircle(smoothed.x, smoothed.y, size / 2, this.brush.color);
+    let dotColor = this.brush.color;
+
+    if (this.brush.colorMixing) {
+      this.currentMixedColor = [...this.brush.color];
+      const canvasColor = this.sampleCanvasColor(smoothed.x, smoothed.y, size / 2);
+      const wasm = getWasm();
+      if (canvasColor && wasm?.km_mix_colors) {
+        const mixed = wasm.km_mix_colors(
+          this.currentMixedColor[0], this.currentMixedColor[1],
+          this.currentMixedColor[2], this.currentMixedColor[3],
+          canvasColor[0], canvasColor[1], canvasColor[2], canvasColor[3],
+          this.brush.colorMixRate,
+        );
+        this.currentMixedColor = [mixed[0], mixed[1], mixed[2], mixed[3]];
+      }
+      dotColor = this.currentMixedColor;
+    }
+
+    this.renderer.drawCircle(smoothed.x, smoothed.y, size / 2, dotColor);
 
     // activeLayerCtx にも同じdotを描画（レイヤー保存用）
     if (this.activeLayerCtx) {
-      this.drawCircleToCtx(this.activeLayerCtx, smoothed.x, smoothed.y, size / 2, this.brush.color);
+      this.drawCircleToCtx(this.activeLayerCtx, smoothed.x, smoothed.y, size / 2, dotColor);
     }
 
     this.renderer.present();
@@ -293,23 +412,14 @@ export class CanvasManager {
     if (!this.lastPoint) return;
 
     const smoothed = this.smoothPoint(point);
-    const size = this.brush.size * smoothed.pressure;
 
-    // Draw line from last point to current（表示用）
-    this.renderer.drawLine(
-      this.lastPoint.x,
-      this.lastPoint.y,
-      smoothed.x,
-      smoothed.y,
-      size,
-      this.brush.color
-    );
-    this.renderer.present();
+    if (this.brush.colorMixing && this.currentMixedColor) {
+      this.handleStrokeMoveKM(smoothed);
+    } else {
+      const size = this.brush.size * smoothed.pressure;
 
-    // activeLayerCtx にも同じラインを描画（レイヤー保存用）
-    if (this.activeLayerCtx) {
-      this.drawLineToCtx(
-        this.activeLayerCtx,
+      // Draw line from last point to current（表示用）
+      this.renderer.drawLine(
         this.lastPoint.x,
         this.lastPoint.y,
         smoothed.x,
@@ -317,6 +427,20 @@ export class CanvasManager {
         size,
         this.brush.color
       );
+      this.renderer.present();
+
+      // activeLayerCtx にも同じラインを描画（レイヤー保存用）
+      if (this.activeLayerCtx) {
+        this.drawLineToCtx(
+          this.activeLayerCtx,
+          this.lastPoint.x,
+          this.lastPoint.y,
+          smoothed.x,
+          smoothed.y,
+          size,
+          this.brush.color
+        );
+      }
     }
 
     this.lastPoint = smoothed;
@@ -348,6 +472,15 @@ export class CanvasManager {
     }
 
     this.lastPoint = null;
+    this.currentMixedColor = null;
+  }
+
+  public setColorMixing(enabled: boolean): void {
+    this.brush.colorMixing = enabled;
+  }
+
+  public setColorMixRate(rate: number): void {
+    this.brush.colorMixRate = Math.max(0, Math.min(1, rate));
   }
 
   public setBrushSize(size: number): void {

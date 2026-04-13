@@ -10,7 +10,7 @@ pub mod layer;
 pub mod stroke;
 
 // Re-export commonly used types
-pub use brush::{blend_premultiplied, to_premultiplied, BlendMode};
+pub use brush::{blend_premultiplied, to_premultiplied, BlendMode, km_mix_colors};
 pub use canvas::{SparseCanvas, Tile, TILE_SIZE};
 pub use input::{RawPoint, SmoothPoint};
 pub use layer::{Layer, LayerStack, LayerBlendMode};

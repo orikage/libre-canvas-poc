@@ -104,6 +104,20 @@ export class Toolbar {
           <span id="smoothing-value">40%</span>
         </label>
       </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
+        <label>
+          <span>Color Mixing</span>
+          <input type="checkbox" id="color-mixing-toggle">
+        </label>
+      </div>
+      <div class="toolbar-group">
+        <label>
+          <span>Pickup</span>
+          <input type="range" id="color-mix-rate" min="0" max="100" value="50" disabled>
+          <span id="color-mix-rate-value">50%</span>
+        </label>
+      </div>
       <div class="toolbar-group">
         <button id="clear-btn">Clear</button>
       </div>
@@ -223,6 +237,22 @@ export class Toolbar {
       const alpha = value / 100;
       this.canvasManager.setSmoothing(alpha, 3);
       smoothingValue.textContent = `${value}%`;
+    });
+
+    // Color mixing (Kubelka-Munk)
+    const mixToggle = toolbar.querySelector('#color-mixing-toggle') as HTMLInputElement;
+    const mixRateSlider = toolbar.querySelector('#color-mix-rate') as HTMLInputElement;
+    const mixRateValue = toolbar.querySelector('#color-mix-rate-value') as HTMLSpanElement;
+
+    mixToggle.addEventListener('change', () => {
+      this.canvasManager.setColorMixing(mixToggle.checked);
+      mixRateSlider.disabled = !mixToggle.checked;
+    });
+
+    mixRateSlider.addEventListener('input', () => {
+      const value = parseInt(mixRateSlider.value);
+      this.canvasManager.setColorMixRate(value / 100);
+      mixRateValue.textContent = `${value}%`;
     });
 
     // Clear button

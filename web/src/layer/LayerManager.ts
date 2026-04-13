@@ -162,6 +162,21 @@ export class LayerManager {
     }
   }
 
+  getLayerImageData(index: number): ImageData | null {
+    return this.layers[index]?.imageData ?? null;
+  }
+
+  setLayerImageData(index: number, data: ImageData): void {
+    if (this.layers[index]) {
+      this.layers[index].imageData = data;
+      this.onChange();
+    }
+  }
+
+  findLayerIndexById(id: number): number {
+    return this.layers.findIndex(l => l.info.id === id);
+  }
+
   /**
    * Composite all visible layers into a single ImageData
    */

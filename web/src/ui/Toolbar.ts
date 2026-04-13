@@ -40,6 +40,13 @@ export class Toolbar {
     this.layerManager = layerManager;
   }
 
+  public updateUndoButtons(): void {
+    const undoBtn = this.container.querySelector('#undo-btn') as HTMLButtonElement | null;
+    const redoBtn = this.container.querySelector('#redo-btn') as HTMLButtonElement | null;
+    if (undoBtn) undoBtn.disabled = !this.canvasManager.canUndo();
+    if (redoBtn) redoBtn.disabled = !this.canvasManager.canRedo();
+  }
+
   private createToolbar(): HTMLElement {
     const toolbar = document.createElement('div');
     toolbar.id = 'toolbar';
@@ -52,6 +59,11 @@ export class Toolbar {
         <button id="save-btn" title="Save (Ctrl+S)">Save</button>
         <button id="load-btn" title="Load">Load</button>
         <button id="export-btn" title="Export PNG">Export</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
+        <button id="undo-btn" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <button id="redo-btn" title="Redo (Ctrl+Y)" disabled>Redo</button>
       </div>
       <div class="toolbar-divider"></div>
       <div class="toolbar-group">
@@ -126,6 +138,7 @@ export class Toolbar {
       if (this.layerManager) {
         this.layerManager.resetToSize(preset.width, preset.height);
       }
+      this.canvasManager.clearUndoHistory();
     });
 
     // File operations
@@ -138,10 +151,25 @@ export class Toolbar {
     const exportBtn = toolbar.querySelector('#export-btn') as HTMLButtonElement;
     exportBtn.addEventListener('click', () => this.handleExport());
 
+    // Undo/Redo buttons
+    const undoBtn = toolbar.querySelector('#undo-btn') as HTMLButtonElement;
+    const redoBtn = toolbar.querySelector('#redo-btn') as HTMLButtonElement;
+    undoBtn.addEventListener('click', () => this.canvasManager.undo());
+    redoBtn.addEventListener('click', () => this.canvasManager.redo());
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      // Skip when focused on text inputs to preserve native undo behavior
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+
       if (e.ctrlKey || e.metaKey) {
-        if (e.key === 's') {
+        if (e.key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          this.canvasManager.undo();
+        } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          this.canvasManager.redo();
+        } else if (e.key === 's') {
           e.preventDefault();
           this.handleSave();
         } else if (e.key === 'o') {
@@ -231,6 +259,7 @@ export class Toolbar {
         // in-place 置換: 既存の layerManager 参照（CanvasManager・LayerPanel も含む）を
         // 無効化せずに内容だけ差し替える。onChange が自動発火してレンダラー・UI を同期する。
         this.layerManager.replaceWith(loaded);
+        this.canvasManager.clearUndoHistory();
         console.log('File loaded');
       }
     } catch (e) {

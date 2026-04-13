@@ -3,6 +3,7 @@ import { CanvasManager } from './canvas/CanvasManager';
 import { Toolbar } from './ui/Toolbar';
 import { LayerPanel } from './ui/LayerPanel';
 import { LayerManager } from './layer/LayerManager';
+import { UndoManager } from './history/UndoManager';
 
 // Global references for debugging
 declare global {
@@ -55,6 +56,10 @@ async function main() {
   const toolbar = new Toolbar(canvasManager);
   toolbar.setLayerManager(layerManager);
   window.appToolbar = toolbar;
+
+  // Initialize undo/redo
+  const undoManager = new UndoManager(300, () => toolbar.updateUndoButtons());
+  canvasManager.setUndoManager(undoManager);
 
   layerPanel = new LayerPanel(layerManager, () => {
     canvasManager.onLayerChanged();

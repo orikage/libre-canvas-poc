@@ -1,0 +1,61 @@
+name: ベンチマーク実行・ドキュメント更新
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'core/src/**'
+      - 'scripts/parse_bench.py'
+      - '.github/workflows/bench.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    name: Run cargo bench and update docs/PERFORMANCE.md
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-bench-${{ hashFiles('core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bench-
+
+      - name: Run cargo bench
+        working-directory: core
+        run: cargo bench 2>&1 | tee "$GITHUB_WORKSPACE/bench_output.txt"
+
+      - name: Generate performance doc
+        run: |
+          python3 scripts/parse_bench.py \
+            --input bench_output.txt \
+            --output docs/PERFORMANCE.md \
+            --commit "${{ github.sha }}" \
+            --date "$(date -u '+%Y-%m-%d %H:%M UTC')"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/PERFORMANCE.md
+          git diff --staged --quiet && echo "No changes to commit." && exit 0
+          git commit -m "docs: update benchmark results [skip ci]"
+          git push

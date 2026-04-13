@@ -97,8 +97,13 @@ html, body {
   transition: background 0.2s;
 }
 
-.toolbar-group button:hover {
+.toolbar-group button:hover:not(:disabled) {
   background: #555;
+}
+
+.toolbar-group button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .toolbar-divider {

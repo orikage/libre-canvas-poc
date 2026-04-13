@@ -2,6 +2,7 @@ import { InputHandler, RawPoint } from './InputHandler';
 import { Renderer, BrushTextureType, createRenderer } from '../renderer/Renderer';
 import { getWasm, StrokeSmoother } from '../wasm/wasmLoader';
 import { LayerManager } from '../layer/LayerManager';
+import { UndoManager } from '../history/UndoManager';
 
 export interface BrushSettings {
   size: number;
@@ -36,6 +37,10 @@ export class CanvasManager {
   // while this canvas uses plain Canvas2D — an accepted POC limitation.
   private activeLayerCanvas: HTMLCanvasElement | null = null;
   private activeLayerCtx: CanvasRenderingContext2D | null = null;
+
+  // Undo/Redo
+  private undoManager: UndoManager | null = null;
+  private strokeBeforeSnapshot: ImageData | null = null;
 
   private constructor(canvas: HTMLCanvasElement, renderer: Renderer) {
     this.canvas = canvas;
@@ -79,6 +84,61 @@ export class CanvasManager {
     this.syncActiveLayerCanvas();
     // 初期表示: 合成結果をレンダラーに反映
     this.onLayerChanged();
+  }
+
+  public setUndoManager(um: UndoManager): void {
+    this.undoManager = um;
+  }
+
+  public undo(): void {
+    // Block undo while a stroke is in progress
+    if (this.lastPoint !== null) return;
+    if (!this.undoManager || !this.layerManager) return;
+    const entry = this.undoManager.popUndo();
+    if (!entry) return;
+
+    const idx = this.layerManager.findLayerIndexById(entry.layerId);
+    if (idx < 0) return;
+
+    const current = this.cloneImageData(this.layerManager.getLayerImageData(idx));
+    if (current) {
+      this.undoManager.pushToRedo({ layerId: entry.layerId, imageData: current });
+    }
+    this.layerManager.setLayerImageData(idx, entry.imageData);
+  }
+
+  public redo(): void {
+    // Block redo while a stroke is in progress
+    if (this.lastPoint !== null) return;
+    if (!this.undoManager || !this.layerManager) return;
+    const entry = this.undoManager.popRedo();
+    if (!entry) return;
+
+    const idx = this.layerManager.findLayerIndexById(entry.layerId);
+    if (idx < 0) return;
+
+    const current = this.cloneImageData(this.layerManager.getLayerImageData(idx));
+    if (current) {
+      this.undoManager.pushToUndo({ layerId: entry.layerId, imageData: current });
+    }
+    this.layerManager.setLayerImageData(idx, entry.imageData);
+  }
+
+  public canUndo(): boolean {
+    return this.undoManager?.canUndo() ?? false;
+  }
+
+  public canRedo(): boolean {
+    return this.undoManager?.canRedo() ?? false;
+  }
+
+  public clearUndoHistory(): void {
+    this.undoManager?.clear();
+  }
+
+  private cloneImageData(data: ImageData | null): ImageData | null {
+    if (!data) return null;
+    return new ImageData(new Uint8ClampedArray(data.data), data.width, data.height);
   }
 
   /**
@@ -210,6 +270,13 @@ export class CanvasManager {
       this.syncActiveLayerCanvas();
     }
 
+    // Capture undo snapshot BEFORE drawing
+    if (this.undoManager && this.layerManager) {
+      this.strokeBeforeSnapshot = this.cloneImageData(
+        this.layerManager.getActiveLayerImageData()
+      );
+    }
+
     // Draw initial dot
     const size = this.brush.size * smoothed.pressure;
     this.renderer.drawCircle(smoothed.x, smoothed.y, size / 2, this.brush.color);
@@ -264,6 +331,20 @@ export class CanvasManager {
       const h = this.activeLayerCanvas.height;
       const data = this.activeLayerCtx.getImageData(0, 0, w, h);
       this.layerManager.setActiveLayerImageData(data);
+
+      // Push undo entry with the before-snapshot
+      if (this.undoManager && this.strokeBeforeSnapshot) {
+        const info = this.layerManager.getLayerInfo(
+          this.layerManager.getActiveLayerIndex()
+        );
+        if (info) {
+          this.undoManager.pushAction({
+            layerId: info.id,
+            imageData: this.strokeBeforeSnapshot,
+          });
+        }
+        this.strokeBeforeSnapshot = null;
+      }
     }
 
     this.lastPoint = null;
@@ -289,6 +370,19 @@ export class CanvasManager {
 
   public clear(): void {
     if (this.layerManager) {
+      // Capture undo snapshot before clearing
+      if (this.undoManager) {
+        const snapshot = this.cloneImageData(
+          this.layerManager.getActiveLayerImageData()
+        );
+        const info = this.layerManager.getLayerInfo(
+          this.layerManager.getActiveLayerIndex()
+        );
+        if (snapshot && info) {
+          this.undoManager.pushAction({ layerId: info.id, imageData: snapshot });
+        }
+      }
+
       // アクティブレイヤーのみをクリア（全レイヤーではない）
       const w = this.layerManager.getWidth();
       const h = this.layerManager.getHeight();

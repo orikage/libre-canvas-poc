@@ -173,3 +173,59 @@ mod tests {
         assert!(pixel[2] > 100 && pixel[2] < 150); // Medium blue
     }
 }
+
+#[cfg(test)]
+mod benches {
+    extern crate test;
+    use test::Bencher;
+    use super::*;
+
+    #[bench]
+    fn bench_tile_blend_pixel_single(b: &mut Bencher) {
+        let mut tile = Tile::new_white();
+        let src: [f32; 4] = [0.5, 0.0, 0.0, 0.5]; // 半透明赤（プリマルチ済み）
+        b.iter(|| {
+            tile.blend_pixel(
+                test::black_box(128usize),
+                test::black_box(128usize),
+                test::black_box(src),
+            );
+        });
+    }
+
+    #[bench]
+    fn bench_tile_blend_all_pixels(b: &mut Bencher) {
+        let src: [f32; 4] = [0.5, 0.0, 0.0, 0.5];
+        b.iter(|| {
+            let mut tile = Tile::new_white();
+            for y in 0..TILE_SIZE {
+                for x in 0..TILE_SIZE {
+                    tile.blend_pixel(
+                        test::black_box(x),
+                        test::black_box(y),
+                        test::black_box(src),
+                    );
+                }
+            }
+            test::black_box(tile.dirty);
+        });
+    }
+
+    #[bench]
+    fn bench_tile_set_pixel_all(b: &mut Bencher) {
+        let rgba: [u8; 4] = [255, 0, 0, 255];
+        b.iter(|| {
+            let mut tile = Tile::new();
+            for y in 0..TILE_SIZE {
+                for x in 0..TILE_SIZE {
+                    tile.set_pixel(
+                        test::black_box(x),
+                        test::black_box(y),
+                        test::black_box(rgba),
+                    );
+                }
+            }
+            test::black_box(tile.dirty);
+        });
+    }
+}

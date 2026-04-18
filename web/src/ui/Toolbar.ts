@@ -99,9 +99,30 @@ export class Toolbar {
       </div>
       <div class="toolbar-group">
         <label>
+          <span>Opacity</span>
+          <input type="range" id="brush-opacity" min="1" max="100" value="100">
+          <span id="brush-opacity-value">100%</span>
+        </label>
+      </div>
+      <div class="toolbar-group">
+        <label>
+          <span>Hardness</span>
+          <input type="range" id="brush-hardness" min="0" max="100" value="70">
+          <span id="brush-hardness-value">70%</span>
+        </label>
+      </div>
+      <div class="toolbar-group">
+        <label>
           <span>Smoothing</span>
           <input type="range" id="smoothing" min="1" max="100" value="40">
           <span id="smoothing-value">40%</span>
+        </label>
+      </div>
+      <div class="toolbar-group">
+        <label>
+          <span>Pressure</span>
+          <input type="range" id="pressure-gamma" min="10" max="200" value="50">
+          <span id="pressure-gamma-value">0.50</span>
         </label>
       </div>
       <div class="toolbar-divider"></div>
@@ -237,6 +258,34 @@ export class Toolbar {
       const alpha = value / 100;
       this.canvasManager.setSmoothing(alpha, 3);
       smoothingValue.textContent = `${value}%`;
+    });
+
+    // Opacity
+    const opacitySlider = toolbar.querySelector('#brush-opacity') as HTMLInputElement;
+    const opacityValue = toolbar.querySelector('#brush-opacity-value') as HTMLSpanElement;
+    opacitySlider.addEventListener('input', () => {
+      const value = parseInt(opacitySlider.value);
+      this.canvasManager.setOpacity(value / 100);
+      opacityValue.textContent = `${value}%`;
+    });
+
+    // Hardness
+    const hardnessSlider = toolbar.querySelector('#brush-hardness') as HTMLInputElement;
+    const hardnessValue = toolbar.querySelector('#brush-hardness-value') as HTMLSpanElement;
+    hardnessSlider.addEventListener('input', () => {
+      const value = parseInt(hardnessSlider.value);
+      this.canvasManager.setHardness(value / 100);
+      hardnessValue.textContent = `${value}%`;
+    });
+
+    // Pressure curve (gamma: slider 10-200 → 0.1-2.0)
+    const gammaSlider = toolbar.querySelector('#pressure-gamma') as HTMLInputElement;
+    const gammaValue = toolbar.querySelector('#pressure-gamma-value') as HTMLSpanElement;
+    gammaSlider.addEventListener('input', () => {
+      const raw = parseInt(gammaSlider.value);
+      const gamma = raw / 100;
+      this.canvasManager.setPressureGamma(gamma);
+      gammaValue.textContent = gamma.toFixed(2);
     });
 
     // Color mixing (Kubelka-Munk)

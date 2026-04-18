@@ -66,7 +66,7 @@ export class Canvas2DRenderer implements Renderer {
     this.present();
   }
 
-  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void {
+  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[], _hardness?: number): void {
     if (this.brushType === 'round') {
       this.drawLineRound(x1, y1, x2, y2, size, color);
     } else {
@@ -74,7 +74,7 @@ export class Canvas2DRenderer implements Renderer {
     }
   }
 
-  drawCircle(x: number, y: number, radius: number, color: number[]): void {
+  drawCircle(x: number, y: number, radius: number, color: number[], _hardness?: number): void {
     if (this.brushType === 'round') {
       this.drawCircleRound(x, y, radius, color);
     } else {

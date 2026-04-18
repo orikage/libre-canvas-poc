@@ -7,6 +7,9 @@ import { UndoManager } from '../history/UndoManager';
 export interface BrushSettings {
   size: number;
   color: number[]; // [r, g, b, a] normalized 0-1
+  opacity: number;         // 0-1, base alpha multiplier
+  hardness: number;        // 0-1, edge softness (WebGPU smoothstep threshold)
+  pressureGamma: number;   // gamma exponent for pressure curve (0.1-2.0; <1 = more sensitive at light touch)
   smoothingAlpha: number;
   smoothingStages: number;
   colorMixing: boolean;    // Kubelka-Munk color mixing enabled
@@ -54,6 +57,9 @@ export class CanvasManager {
     this.brush = {
       size: 10,
       color: [0, 0, 0, 1], // Black
+      opacity: 1.0,
+      hardness: 0.7,
+      pressureGamma: 0.5,
       smoothingAlpha: 0.4,
       smoothingStages: 3,
       colorMixing: false,
@@ -209,6 +215,7 @@ export class CanvasManager {
   }
 
   private smoothPoint(point: RawPoint): SmoothedPoint {
+    let result: SmoothedPoint;
     if (this.useWasmSmoothing && this.smoother) {
       const wasm = getWasm();
       if (wasm) {
@@ -217,15 +224,25 @@ export class CanvasManager {
           point.tiltX, point.tiltY, point.timestamp
         );
         const smoothed = this.smoother.process(wasmPoint);
-        const result = { x: smoothed.x, y: smoothed.y, pressure: smoothed.pressure };
+        result = { x: smoothed.x, y: smoothed.y, pressure: smoothed.pressure };
         wasmPoint.free();
         smoothed.free();
-        return result;
+      } else {
+        result = { x: point.x, y: point.y, pressure: point.pressure };
       }
+    } else {
+      result = { x: point.x, y: point.y, pressure: point.pressure };
     }
 
-    // Fallback: no smoothing
-    return { x: point.x, y: point.y, pressure: point.pressure };
+    // Apply pressure curve (gamma) and minimum floor
+    const g = this.brush.pressureGamma;
+    result.pressure = Math.max(0.1, Math.min(1.0, Math.pow(result.pressure, g)));
+    return result;
+  }
+
+  private effectiveColor(base: number[], pressure: number): number[] {
+    const a = (base[3] ?? 1) * this.brush.opacity * pressure;
+    return [base[0], base[1], base[2], a];
   }
 
   // ---------------------------------------------------------------------------
@@ -345,10 +362,11 @@ export class CanvasManager {
         this.currentMixedColor = [mixed[0], mixed[1], mixed[2], mixed[3]];
       }
 
-      this.renderer.drawCircle(dab.x, dab.y, dab.radius, this.currentMixedColor);
+      const drawColor = this.effectiveColor(this.currentMixedColor, smoothed.pressure);
+      this.renderer.drawCircle(dab.x, dab.y, dab.radius, drawColor, this.brush.hardness);
 
       if (this.activeLayerCtx) {
-        this.drawCircleToCtx(this.activeLayerCtx, dab.x, dab.y, dab.radius, this.currentMixedColor);
+        this.drawCircleToCtx(this.activeLayerCtx, dab.x, dab.y, dab.radius, drawColor);
       }
     }
 
@@ -398,11 +416,12 @@ export class CanvasManager {
       dotColor = this.currentMixedColor;
     }
 
-    this.renderer.drawCircle(smoothed.x, smoothed.y, size / 2, dotColor);
+    const drawColor = this.effectiveColor(dotColor, smoothed.pressure);
+    this.renderer.drawCircle(smoothed.x, smoothed.y, size / 2, drawColor, this.brush.hardness);
 
     // activeLayerCtx にも同じdotを描画（レイヤー保存用）
     if (this.activeLayerCtx) {
-      this.drawCircleToCtx(this.activeLayerCtx, smoothed.x, smoothed.y, size / 2, dotColor);
+      this.drawCircleToCtx(this.activeLayerCtx, smoothed.x, smoothed.y, size / 2, drawColor);
     }
 
     this.renderer.present();
@@ -417,6 +436,7 @@ export class CanvasManager {
       this.handleStrokeMoveKM(smoothed);
     } else {
       const size = this.brush.size * smoothed.pressure;
+      const drawColor = this.effectiveColor(this.brush.color, smoothed.pressure);
 
       // Draw line from last point to current（表示用）
       this.renderer.drawLine(
@@ -425,7 +445,8 @@ export class CanvasManager {
         smoothed.x,
         smoothed.y,
         size,
-        this.brush.color
+        drawColor,
+        this.brush.hardness
       );
       this.renderer.present();
 
@@ -438,7 +459,7 @@ export class CanvasManager {
           smoothed.x,
           smoothed.y,
           size,
-          this.brush.color
+          drawColor
         );
       }
     }
@@ -446,10 +467,46 @@ export class CanvasManager {
     this.lastPoint = smoothed;
   }
 
-  private handleStrokeEnd(): void {
+  private handleStrokeEnd(finalRaw: RawPoint): void {
+    // Generate tail dabs to taper the stroke toward the pen-up position
+    if (this.lastPoint) {
+      const TAIL_STEPS = 4;
+      const target = { x: finalRaw.x, y: finalRaw.y, pressure: this.lastPoint.pressure };
+      for (let i = 1; i <= TAIL_STEPS; i++) {
+        const t = i / TAIL_STEPS;
+        const taper = 1 - t;
+        const px = this.lastPoint.x + (target.x - this.lastPoint.x) * t;
+        const py = this.lastPoint.y + (target.y - this.lastPoint.y) * t;
+        const pp = this.lastPoint.pressure * taper;
+        const size = this.brush.size * pp;
+        if (size < 0.5) break;
+
+        const tailPoint: SmoothedPoint = { x: px, y: py, pressure: pp };
+
+        if (this.brush.colorMixing && this.currentMixedColor) {
+          const drawColor = this.effectiveColor(this.currentMixedColor, pp);
+          this.renderer.drawCircle(px, py, size / 2, drawColor, this.brush.hardness);
+          if (this.activeLayerCtx) {
+            this.drawCircleToCtx(this.activeLayerCtx, px, py, size / 2, drawColor);
+          }
+        } else {
+          const drawColor = this.effectiveColor(this.brush.color, pp);
+          this.renderer.drawLine(
+            this.lastPoint.x, this.lastPoint.y, px, py,
+            size, drawColor, this.brush.hardness
+          );
+          if (this.activeLayerCtx) {
+            this.drawLineToCtx(this.activeLayerCtx,
+              this.lastPoint.x, this.lastPoint.y, px, py,
+              size, drawColor);
+          }
+        }
+        this.lastPoint = tailPoint;
+      }
+      this.renderer.present();
+    }
+
     // activeLayerCtx の内容を LayerManager に保存する。
-    // setActiveLayerImageData が内部で onChange を発火し、
-    // onLayerChanged() が composite → renderer.putImageData → syncActiveLayerCanvas を処理する。
     if (this.layerManager && this.activeLayerCtx && this.activeLayerCanvas) {
       const w = this.activeLayerCanvas.width;
       const h = this.activeLayerCanvas.height;
@@ -489,6 +546,18 @@ export class CanvasManager {
 
   public setBrushColor(r: number, g: number, b: number, a = 1): void {
     this.brush.color = [r, g, b, a];
+  }
+
+  public setOpacity(v: number): void {
+    this.brush.opacity = Math.max(0, Math.min(1, v));
+  }
+
+  public setHardness(v: number): void {
+    this.brush.hardness = Math.max(0, Math.min(1, v));
+  }
+
+  public setPressureGamma(g: number): void {
+    this.brush.pressureGamma = Math.max(0.1, Math.min(2.0, g));
   }
 
   public setSmoothing(alpha: number, stages: number): void {

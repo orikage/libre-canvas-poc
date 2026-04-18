@@ -12,12 +12,12 @@ export interface Renderer {
   /**
    * Draw a line between two points
    */
-  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void;
+  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[], hardness?: number): void;
 
   /**
    * Draw a filled circle
    */
-  drawCircle(x: number, y: number, radius: number, color: number[]): void;
+  drawCircle(x: number, y: number, radius: number, color: number[], hardness?: number): void;
 
   /**
    * Present the rendered content to the display

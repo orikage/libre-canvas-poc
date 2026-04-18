@@ -10,7 +10,7 @@ export interface RawPoint {
 export interface InputHandlerCallbacks {
   onStrokeStart: (point: RawPoint) => void;
   onStrokeMove: (point: RawPoint) => void;
-  onStrokeEnd: () => void;
+  onStrokeEnd: (point: RawPoint) => void;
 }
 
 export class InputHandler {
@@ -69,7 +69,8 @@ export class InputHandler {
     this.lastPointerId = null;
     this.canvas.releasePointerCapture(e.pointerId);
 
-    this.callbacks.onStrokeEnd();
+    const point = this.extractPoint(e);
+    this.callbacks.onStrokeEnd(point);
   };
 
   private extractPoint(e: PointerEvent): RawPoint {

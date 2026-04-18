@@ -445,7 +445,7 @@ export class WebGPURenderer implements Renderer {
     this.present();
   }
 
-  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[]): void {
+  drawLine(x1: number, y1: number, x2: number, y2: number, size: number, color: number[], hardness?: number): void {
     const dx = x2 - x1, dy = y2 - y1;
     const dist    = Math.sqrt(dx*dx + dy*dy);
     const spacing = Math.max(size * 0.25, 1);
@@ -453,7 +453,7 @@ export class WebGPURenderer implements Renderer {
 
     const [r, g, b, a] = [color[0]??0, color[1]??0, color[2]??0, color[3]??1];
     const radius = size * 0.5;
-    const hardness = 0.7;
+    const h = hardness ?? 0.7;
     const [pr, pg, pb] = [r*a, g*a, b*a];
 
     const dabs = new Float32Array(steps * DAB_FLOATS);
@@ -463,7 +463,7 @@ export class WebGPURenderer implements Renderer {
       dabs[ox+0] = x1 + dx*t;
       dabs[ox+1] = y1 + dy*t;
       dabs[ox+2] = radius;
-      dabs[ox+3] = hardness;
+      dabs[ox+3] = h;
       dabs[ox+4] = pr; dabs[ox+5] = pg; dabs[ox+6] = pb; dabs[ox+7] = a;
     }
     this._drawDabs(dabs, steps);
@@ -479,9 +479,9 @@ export class WebGPURenderer implements Renderer {
     ctx.stroke();
   }
 
-  drawCircle(x: number, y: number, radius: number, color: number[]): void {
+  drawCircle(x: number, y: number, radius: number, color: number[], hardness?: number): void {
     const [r, g, b, a] = [color[0]??0, color[1]??0, color[2]??0, color[3]??1];
-    const dab = new Float32Array([x, y, radius, 0.7, r*a, g*a, b*a, a]);
+    const dab = new Float32Array([x, y, radius, hardness ?? 0.7, r*a, g*a, b*a, a]);
     this._drawDabs(dab, 1);
 
     const ctx = this.shadowCtx;
